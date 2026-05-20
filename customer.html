@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>قائمة الطعام</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+body{font-family:'Noto Kufi Arabic',sans-serif;background:#0a0a0a;}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:#0a0a0a}
+::-webkit-scrollbar-thumb{background:#c9a84c;border-radius:4px}
+.modal-enter{animation:modalIn 0.3s ease-out;}
+@keyframes modalIn{from{opacity:0;transform:scale(0.9);}to{opacity:1;transform:scale(1);}}
+</style>
+</head>
+<body class="min-h-screen text-white pb-28">
+
+<!-- Modal: Enter Table Number -->
+<div id="table-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm hidden">
+  <div class="modal-enter bg-[#111] border-2 border-[#c9a84c]/40 rounded-2xl p-8 max-w-sm w-full mx-4 text-center shadow-2xl">
+    <div class="text-5xl mb-4">📷</div>
+    <h2 class="text-xl font-black text-[#c9a84c] mb-2">أهلاً بك!</h2>
+    <p class="text-gray-400 text-sm mb-6">لم يتم تحديد رقم الطاولة.<br>أدخل رقم الطاولة يدوياً أو امسح QR Code</p>
+    <input type="number" id="manual-table" placeholder="رقم الطاولة" class="w-full bg-[#0a0a0a] border border-[#c9a84c]/40 rounded-xl px-4 py-3 text-white text-center text-xl font-bold focus:outline-none focus:border-[#c9a84c] mb-4" min="1">
+    <button onclick="setTableFromInput()" class="w-full bg-[#c9a84c] hover:bg-[#e0c97e] text-[#0a0a0a] font-black text-lg py-3 rounded-xl transition-colors">
+      ✅ تأكيد
+    </button>
+  </div>
+</div>
+
+<!-- Header -->
+<div class="sticky top-0 z-40 bg-[#0a0a0a]/95 backdrop-blur border-b border-[#c9a84c]/30 px-4 py-4">
+  <div class="flex items-center justify-between max-w-lg mx-auto">
+    <h1 class="text-xl font-black text-[#c9a84c]">📜 قائمة الطعام</h1>
+    <div class="flex items-center gap-2 bg-[#111] border border-[#c9a84c]/30 rounded-xl px-3 py-2">
+      <span class="text-sm text-gray-400">طاولة</span>
+      <span id="table-display" class="text-lg font-black text-[#c9a84c]">--</span>
+    </div>
+  </div>
+</div>
+
+<!-- Categories -->
+<div class="flex gap-2 overflow-x-auto px-4 py-4 scrollbar-hide max-w-lg mx-auto" id="categories">
+  <button onclick="filterCat('all')" class="cat-btn active px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap bg-[#c9a84c] text-[#0a0a0a] transition-all" data-cat="all">الكل</button>
+  <button onclick="filterCat('main')" class="cat-btn px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap bg-[#111] text-gray-400 border border-[#222] transition-all" data-cat="main">🥩 رئيسية</button>
+  <button onclick="filterCat('appetizer')" class="cat-btn px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap bg-[#111] text-gray-400 border border-[#222] transition-all" data-cat="appetizer">🥗 مقبلات</button>
+  <button onclick="filterCat('dessert')" class="cat-btn px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap bg-[#111] text-gray-400 border border-[#222] transition-all" data-cat="dessert">🍰 حلويات</button>
+  <button onclick="filterCat('drink')" class="cat-btn px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap bg-[#111] text-gray-400 border border-[#222] transition-all" data-cat="drink">🥤 مشروبات</button>
+</div>
+
+<!-- Menu Items -->
+<div id="menu" class="px-4 space-y-3 max-w-lg mx-auto"></div>
+
+<!-- Bottom Bar -->
+<div class="fixed bottom-0 left-0 right-0 bg-[#111] border-t border-[#c9a84c]/40 px-4 py-3 z-50">
+  <div class="flex items-center justify-between max-w-lg mx-auto">
+    <div>
+      <div class="text-xs text-gray-500">الإجمالي</div>
+      <div class="text-xl font-black text-[#c9a84c]"><span id="total">0</span> دج</div>
+    </div>
+    <button onclick="confirmOrder()" class="bg-[#c9a84c] hover:bg-[#e0c97e] text-[#0a0a0a] font-black text-lg px-8 py-3 rounded-xl transition-colors">
+      تأكيد الطلب ✓
+    </button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 bg-[#c9a84c] text-[#0a0a0a] px-6 py-3 rounded-xl font-bold shadow-2xl transform -translate-y-32 opacity-0 transition-all duration-300 z-50"></div>
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAmqxyLLN2an4QG0r3pGvGZevaMRViokXo",
+  authDomain: "luxury-restaurant-system-30db8.firebaseapp.com",
+  projectId: "luxury-restaurant-system-30db8",
+  storageBucket: "luxury-restaurant-system-30db8.firebasestorage.app",
+  messagingSenderId: "158062250270",
+  appId: "1:158062250270:web:b125c18e48290b9976610f",
+  measurementId: "G-MXK7T8LZ67"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+window.db = db;
+window.addDoc = addDoc;
+window.collection = collection;
+window.serverTimestamp = serverTimestamp;
+</script>
+
+<script>
+// ========== TABLE NUMBER FROM HASH ==========
+let tableNum = null;
+
+function initTable() {
+  // Read from hash: #5 or #table=5
+  const hash = window.location.hash.replace('#', '').trim();
+  let t = null;
+  
+  if (hash) {
+    // Try direct number: #5
+    const directNum = parseInt(hash);
+    if (!isNaN(directNum) && directNum > 0) {
+      t = directNum;
+    }
+    // Try key-value: #table=5
+    else if (hash.includes('=')) {
+      const hashParams = new URLSearchParams(hash);
+      const tableFromHash = hashParams.get('table');
+      if (tableFromHash && !isNaN(tableFromHash) && tableFromHash > 0) {
+        t = parseInt(tableFromHash);
+      }
+    }
+  }
+  
+  if (t && t > 0) {
+    tableNum = t;
+    document.getElementById('table-display').textContent = tableNum;
+  } else {
+    document.getElementById('table-modal').classList.remove('hidden');
+  }
+}
+
+function setTableFromInput() {
+  const input = document.getElementById('manual-table');
+  const val = parseInt(input.value);
+  if (val && val > 0) {
+    tableNum = val;
+    document.getElementById('table-display').textContent = tableNum;
+    document.getElementById('table-modal').classList.add('hidden');
+  } else {
+    input.classList.add('border-red-500');
+    setTimeout(() => input.classList.remove('border-red-500'), 500);
+  }
+}
+
+// ========== MENU DATA ==========
+const menuItems = [
+  {id:1, name:'ستيك تندرلوين', desc:'250غ مع صلصة الفلفل', price:4500, cat:'main'},
+  {id:2, name:'برياني لحم', desc:'أرز بسمتي مع لحم الضأن', price:3200, cat:'main'},
+  {id:3, name:'سلمون مشوي', desc:'مع الخضار المشكلة', price:3800, cat:'main'},
+  {id:4, name:'سلطة سيزر', desc:'دجاج مشوي مع الخس والكرومب', price:1200, cat:'appetizer'},
+  {id:5, name:'حمص', desc:'مع زيت الزيتون والبابريكا', price:600, cat:'appetizer'},
+  {id:6, name:'كباب مشوي', desc:'4 أسياخ مع الطحينة', price:2800, cat:'main'},
+  {id:7, name:'تشيز كيك', desc:'مع صوص التوت البري', price:900, cat:'dessert'},
+  {id:8, name:'تيراميسو', desc:'الكلاسيكي الإيطالي', price:800, cat:'dessert'},
+  {id:9, name:'عصير برتقال طازج', desc:'300 مل', price:400, cat:'drink'},
+  {id:10, name:'ماء معدنية', desc:'500 مل', price:200, cat:'drink'},
+  {id:11, name:'كبسة دجاج', desc:'مع الزبيب والمكسرات', price:2900, cat:'main'},
+  {id:12, name:'فتوش', desc:'سلطة لبنانية كلاسيكية', price:700, cat:'appetizer'},
+];
+
+let cart = {};
+let currentCat = 'all';
+
+function filterCat(cat) {
+  currentCat = cat;
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    if (btn.dataset.cat === cat) {
+      btn.classList.remove('bg-[#111]', 'text-gray-400', 'border-[#222]');
+      btn.classList.add('bg-[#c9a84c]', 'text-[#0a0a0a]');
+    } else {
+      btn.classList.add('bg-[#111]', 'text-gray-400', 'border-[#222]');
+      btn.classList.remove('bg-[#c9a84c]', 'text-[#0a0a0a]');
+    }
+  });
+  renderMenu();
+}
+
+function renderMenu() {
+  const container = document.getElementById('menu');
+  const filtered = currentCat === 'all' ? menuItems : menuItems.filter(i => i.cat === currentCat);
+  
+  container.innerHTML = filtered.map(item => {
+    const qty = cart[item.id] || 0;
+    return `
+      <div class="bg-[#111] border border-[#222] rounded-xl p-4 flex items-center justify-between">
+        <div class="flex-1">
+          <div class="text-lg font-bold text-white">${item.name}</div>
+          <div class="text-sm text-gray-500 mt-0.5">${item.desc}</div>
+          <div class="text-[#c9a84c] font-bold mt-1">${item.price.toLocaleString('ar-DZ')} دج</div>
+        </div>
+        <div class="flex items-center gap-2 mr-4">
+          <button onclick="updateQty(${item.id}, -1)" class="w-9 h-9 rounded-lg bg-[#222] text-white font-bold text-lg hover:bg-[#333] transition-colors ${qty === 0 ? 'opacity-30' : ''}">-</button>
+          <span id="qty-${item.id}" class="w-8 text-center font-bold text-lg">${qty}</span>
+          <button onclick="updateQty(${item.id}, 1)" class="w-9 h-9 rounded-lg bg-[#c9a84c] text-[#0a0a0a] font-bold text-lg hover:bg-[#e0c97e] transition-colors">+</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function updateQty(id, delta) {
+  const item = menuItems.find(i => i.id === id);
+  if (!item) return;
+  
+  const current = cart[id] || 0;
+  const next = current + delta;
+  
+  if (next < 0) return;
+  if (next === 0) delete cart[id];
+  else cart[id] = next;
+  
+  document.getElementById(`qty-${id}`).textContent = next;
+  updateTotal();
+}
+
+function updateTotal() {
+  let total = 0;
+  for (const [id, qty] of Object.entries(cart)) {
+    const item = menuItems.find(i => i.id == id);
+    if (item) total += item.price * qty;
+  }
+  document.getElementById('total').textContent = total.toLocaleString('ar-DZ');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('-translate-y-32', 'opacity-0');
+  t.classList.add('translate-y-0', 'opacity-100');
+  setTimeout(() => {
+    t.classList.add('-translate-y-32', 'opacity-0');
+    t.classList.remove('translate-y-0', 'opacity-100');
+  }, 2500);
+}
+
+async function confirmOrder() {
+  if (!tableNum) {
+    document.getElementById('table-modal').classList.remove('hidden');
+    return;
+  }
+  
+  if (Object.keys(cart).length === 0) {
+    showToast('🛒 السلة فارغة!');
+    return;
+  }
+  
+  const items = [];
+  let total = 0;
+  for (const [id, qty] of Object.entries(cart)) {
+    const item = menuItems.find(i => i.id == id);
+    if (item) {
+      items.push({name: item.name, qty: qty, price: item.price});
+      total += item.price * qty;
+    }
+  }
+  
+  const order = {
+    table: "طاولة " + tableNum,
+    tableNum: String(tableNum).padStart(2, '0'),
+    items: items,
+    total: total,
+    note: "",
+    status: "new",
+    timestamp: window.serverTimestamp ? window.serverTimestamp() : new Date()
+  };
+  
+  try {
+    if (window.db && window.collection && window.addDoc) {
+      await window.addDoc(window.collection(window.db, "orders"), order);
+      showToast('✅ تم إرسال الطلب!');
+    } else {
+      showToast('⚠️ Firebase غير مفعل');
+      console.log('Order:', order);
+    }
+    cart = {};
+    renderMenu();
+    updateTotal();
+  } catch (e) {
+    showToast('❌ خطأ: ' + e.message);
+  }
+}
+
+// Initialize
+initTable();
+renderMenu();
+</script>
+
+</body>
+  </html>
